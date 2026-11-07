@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+eval-results.json
+eval-report.md
+.claude/

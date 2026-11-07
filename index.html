@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Eval</title>
+<meta name="description" content="A browser-only prompt eval harness: test cases, assertions, A/B prompt diffing, and LLM-judge calibration.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#9878;</text></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <h1>⚖︎ Simple Eval</h1>
+  <span class="tag">prompt regression harness</span>
+  <span class="spacer"></span>
+  <span class="small muted">runs entirely in your browser — nothing is sent to any server except the model provider you pick</span>
+</header>
+
+<div class="wrap">
+
+  <div class="tabs">
+    <button data-tab="setup" class="active">1. Setup</button>
+    <button data-tab="cases">2. Test cases</button>
+    <button data-tab="run">3. Run &amp; compare</button>
+    <button data-tab="judge">4. Judge calibration</button>
+  </div>
+
+  <!-- ================= SETUP ================= -->
+  <section id="tab-setup">
+    <div class="banner">
+      <strong>Before you touch the tool:</strong> the bottleneck is not the runner, it is the dataset.
+      Write 30–50 real inputs with known-good outputs first. Everything below is useless without them.
+      Start in <em>Mock</em> provider to feel the loop with zero cost.
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>Provider</h2>
+        <label for="provider">Backend</label>
+        <select id="provider">
+          <option value="mock">Mock (no network, deterministic — try this first)</option>
+          <option value="anthropic">Anthropic Messages API</option>
+          <option value="openai">OpenAI-compatible (/v1/chat/completions)</option>
+        </select>
+
+        <div id="live-cfg" class="hidden">
+          <label for="baseUrl">Base URL</label>
+          <input id="baseUrl" spellcheck="false" placeholder="https://api.anthropic.com">
+
+          <label for="model">Model</label>
+          <input id="model" spellcheck="false" placeholder="claude-sonnet-5">
+
+          <label for="apiKey">API key <span class="muted">(kept in this browser's localStorage only — never transmitted anywhere but the provider)</span></label>
+          <input id="apiKey" type="password" spellcheck="false" autocomplete="off" placeholder="paste key">
+          <div class="row small muted" style="margin-top:6px">
+            <input type="checkbox" id="rememberKey" style="width:auto"> <label for="rememberKey" style="margin:0">Remember key in this browser</label>
+            <button class="ghost small" id="clearKey" type="button">Forget key</button>
+          </div>
+          <div class="small muted" style="margin-top:6px">
+            Shared or public machine? Leave "remember" off. Rotate any key you have pasted into a machine you do not control.
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <div style="flex:1">
+              <label for="temperature">Temperature</label>
+              <input id="temperature" type="number" min="0" max="2" step="0.1" value="0">
+            </div>
+            <div style="flex:1">
+              <label for="maxTokens">Max tokens</label>
+              <input id="maxTokens" type="number" min="16" max="8192" step="16" value="512">
+            </div>
+            <div style="flex:1">
+              <label for="concurrency">Concurrency</label>
+              <input id="concurrency" type="number" min="1" max="8" step="1" value="3">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Pass gate</h2>
+        <label for="threshold">Minimum suite score to pass (%)</label>
+        <input id="threshold" type="number" min="0" max="100" step="1" value="90">
+        <p class="small muted">
+          This is the number a CI gate would block a merge on. Pick it before you run, not after you see the result —
+          otherwise you are fitting the gate to the prompt.
+        </p>
+        <label for="judgeModel">LLM-judge model <span class="muted">(used only by <code>llm_judge</code> assertions)</span></label>
+        <input id="judgeModel" spellcheck="false" placeholder="claude-haiku-4-5-20251001">
+        <p class="small muted">
+          Judges drift, agree with themselves, and reward verbosity. Use tab 4 to measure the judge against your own
+          labels before you trust a single judged score.
+        </p>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>Prompt A <span class="hint muted">— baseline / current production</span></h2>
+        <textarea id="promptA" spellcheck="false"></textarea>
+        <p class="small muted"><code>{{variable}}</code> placeholders are filled from each test case's inputs.</p>
+      </div>
+      <div class="panel">
+        <h2>Prompt B <span class="hint muted">— candidate (optional)</span></h2>
+        <textarea id="promptB" spellcheck="false"></textarea>
+        <p class="small muted">Leave empty to evaluate A alone. Fill it to get a per-case A/B regression table.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CASES ================= -->
+  <section id="tab-cases" class="hidden">
+    <div class="panel">
+      <h2>Test cases <span class="hint muted" id="caseCount"></span></h2>
+      <div class="row" style="margin-bottom:12px">
+        <button id="addCase" type="button">+ Add case</button>
+        <button id="exportCases" class="ghost" type="button">Export JSON</button>
+        <button id="importCases" class="ghost" type="button">Import JSON</button>
+        <button id="loadDemo" class="ghost" type="button">Load demo suite</button>
+        <input id="importFile" type="file" accept="application/json,.json" class="hidden">
+      </div>
+      <div id="caseList"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Assertion types</h2>
+      <table>
+        <tbody>
+          <tr><td class="mono">contains</td><td class="muted">Output contains this substring (case-insensitive).</td></tr>
+          <tr><td class="mono">not_contains</td><td class="muted">Output must <em>not</em> contain it. Good for leaked PII, banned phrases, pricing or SLA promises.</td></tr>
+          <tr><td class="mono">equals</td><td class="muted">Exact match after trimming.</td></tr>
+          <tr><td class="mono">regex</td><td class="muted">JavaScript regex, tested against the whole output.</td></tr>
+          <tr><td class="mono">json_valid</td><td class="muted">Output parses as JSON (fenced code blocks are stripped first). Value ignored.</td></tr>
+          <tr><td class="mono">json_has_keys</td><td class="muted">Output is JSON and has every comma-separated key at the top level.</td></tr>
+          <tr><td class="mono">max_words</td><td class="muted">Output is at most N words. Cheap guard against verbosity creep.</td></tr>
+          <tr><td class="mono">llm_judge</td><td class="muted">A model scores the output against your criterion. Calibrate it in tab 4 before trusting it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= RUN ================= -->
+  <section id="tab-run" class="hidden">
+    <div class="panel">
+      <h2>Run</h2>
+      <div class="row">
+        <button id="runBtn" class="primary" type="button">Run suite</button>
+        <button id="stopBtn" class="ghost hidden" type="button">Stop</button>
+        <button id="exportResults" class="ghost" type="button" disabled>Export results JSON</button>
+        <button id="exportMd" class="ghost" type="button" disabled>Export Markdown report</button>
+        <span id="runStatus" class="small muted"></span>
+      </div>
+      <div class="bar"><span id="progressBar" style="width:0%"></span></div>
+    </div>
+
+    <div class="panel hidden" id="summaryPanel">
+      <h2>Summary</h2>
+      <div class="statgrid" id="summary"></div>
+      <div id="gateVerdict" style="margin-top:12px"></div>
+    </div>
+
+    <div class="panel hidden" id="resultsPanel">
+      <h2>Per-case results</h2>
+      <div id="results"></div>
+    </div>
+  </section>
+
+  <!-- ================= JUDGE ================= -->
+  <section id="tab-judge" class="hidden">
+    <div class="panel">
+      <h2>Judge calibration <span class="hint muted">— the part most teams get wrong</span></h2>
+      <p class="small muted" style="margin-top:0">
+        An LLM judge is itself a prompt, and it needs its own eval. Label each judged output by hand below,
+        then compare. If agreement is under ~85%, the judged portion of your score is noise — fix the judge
+        rubric or replace it with a deterministic assertion.
+      </p>
+      <div id="judgeTable"><p class="muted small">Run a suite containing at least one <code>llm_judge</code> assertion, then come back here.</p></div>
+    </div>
+    <div class="panel hidden" id="agreementPanel">
+      <h2>Agreement</h2>
+      <div class="statgrid" id="agreement"></div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  Simple Eval — static, dependency-free, no backend.
+  State lives in your browser's localStorage; export your suite to keep it.
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
