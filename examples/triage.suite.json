@@ -1,0 +1,143 @@
+{
+  "promptA": "You are a support triage assistant.\n\nClassify the customer message below into exactly one category:\nbilling, bug, feature_request, cancellation, other.\n\nRespond with JSON ONLY. No preamble, no code fence. Schema:\n{\"category\": \"<one of the five>\", \"urgency\": \"low\"|\"medium\"|\"high\", \"reply\": \"<one sentence, under 25 words>\"}\n\nNever mention specific prices, discounts, refund amounts, or response-time guarantees.\n\nCustomer message:\n{{input}}",
+  "promptB": "You're a helpful support assistant. Read the customer message and\nfigure out what kind of issue it is (billing, bug, feature_request,\ncancellation, or other), how urgent it is, and draft a short reply.\n\nGive me the result as JSON.\n\nCustomer message:\n{{input}}",
+  "threshold": 90,
+  "cases": [
+    {
+      "name": "Card declined — billing",
+      "vars": {
+        "input": "My card got declined twice this morning and now the dashboard says my workspace is suspended. Can someone sort this out?"
+      },
+      "asserts": [
+        {
+          "type": "json_valid",
+          "value": ""
+        },
+        {
+          "type": "json_has_keys",
+          "value": "category, urgency, reply"
+        },
+        {
+          "type": "contains",
+          "value": "billing"
+        },
+        {
+          "type": "not_contains",
+          "value": "refund"
+        },
+        {
+          "type": "max_words",
+          "value": "80"
+        }
+      ]
+    },
+    {
+      "name": "Export button 500s — bug",
+      "vars": {
+        "input": "Clicking Export on the reports page returns a 500. Started after yesterday. Three people on my team can reproduce it."
+      },
+      "asserts": [
+        {
+          "type": "json_valid",
+          "value": ""
+        },
+        {
+          "type": "json_has_keys",
+          "value": "category, urgency, reply"
+        },
+        {
+          "type": "contains",
+          "value": "bug"
+        },
+        {
+          "type": "llm_judge",
+          "value": "The reply acknowledges the problem and does not promise a fix time or an SLA."
+        }
+      ]
+    },
+    {
+      "name": "Wants dark mode — feature request",
+      "vars": {
+        "input": "Any chance of a dark mode? I stare at this thing for nine hours a day."
+      },
+      "asserts": [
+        {
+          "type": "json_valid",
+          "value": ""
+        },
+        {
+          "type": "contains",
+          "value": "feature_request"
+        },
+        {
+          "type": "regex",
+          "value": "\"urgency\"\\s*:\\s*\"low\""
+        }
+      ]
+    },
+    {
+      "name": "Cancelling at renewal",
+      "vars": {
+        "input": "We are not renewing next month. Please tell me what I need to do to close the account and get our data out."
+      },
+      "asserts": [
+        {
+          "type": "json_valid",
+          "value": ""
+        },
+        {
+          "type": "contains",
+          "value": "cancellation"
+        },
+        {
+          "type": "not_contains",
+          "value": "discount"
+        },
+        {
+          "type": "llm_judge",
+          "value": "The reply is neutral and professional, and does not try to upsell or offer an incentive to stay."
+        }
+      ]
+    },
+    {
+      "name": "Ambiguous praise — other",
+      "vars": {
+        "input": "Just wanted to say the new onboarding flow is much better. No issue, carry on."
+      },
+      "asserts": [
+        {
+          "type": "json_valid",
+          "value": ""
+        },
+        {
+          "type": "contains",
+          "value": "other"
+        },
+        {
+          "type": "max_words",
+          "value": "60"
+        }
+      ]
+    },
+    {
+      "name": "Pasted credential — must not echo",
+      "vars": {
+        "input": "Login is broken. My password is hunter2-and-then-some, try it yourself."
+      },
+      "asserts": [
+        {
+          "type": "json_valid",
+          "value": ""
+        },
+        {
+          "type": "not_contains",
+          "value": "hunter2"
+        },
+        {
+          "type": "llm_judge",
+          "value": "The reply does not repeat the password and does not ask for credentials."
+        }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 A small prompt regression harness. One static page, no build step, no backend, no dependencies.
 
-**Live:** https://dunstonhary.github.io/simple-eval/
+**Live:** https://dunston.tech/simple-eval/
 
 ![status](https://img.shields.io/badge/deps-0-blue) ![status](https://img.shields.io/badge/backend-none-blue)
 
@@ -62,7 +62,7 @@ python3 -m http.server 8000   # any static server works
 `cli/run-eval.mjs` runs an exported suite headlessly. Node 20+, zero dependencies.
 
 ```bash
-node cli/run-eval.mjs eval-suite.json \
+node cli/run-eval.mjs examples/triage.suite.json \
   --provider anthropic \
   --model claude-sonnet-5 \
   --threshold 90
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - run: node cli/run-eval.mjs prompts/triage.suite.json --threshold 90
+      - run: node cli/run-eval.mjs examples/triage.suite.json --threshold 90
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
